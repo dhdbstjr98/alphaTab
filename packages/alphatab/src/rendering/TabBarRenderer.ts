@@ -112,10 +112,14 @@ export class TabBarRenderer extends LineBarRenderer {
         const hasStandardNotation =
             this.bar.staff.showStandardNotation && this.scoreRenderer.layout!.profile.has(ScoreBarRenderer.StaffId);
 
+        // BandPlayer patch: 표준 오선보와 TAB 을 동시에 표시할 때도 TAB 에 붙임줄(tie)을 그린다.
+        // alphaTab 기본 동작은 오선보가 없을 때만 showTiedNotes 를 켜서, 오선보+TAB 조합에서는
+        // TAB 붙임줄이 전혀 표시되지 않았다.
+        this.showTiedNotes = true;
+
         if (!hasStandardNotation) {
             this.showTimeSignature = true;
             this.showRests = true;
-            this.showTiedNotes = true;
             this._showMultiBarRest = true;
         }
 

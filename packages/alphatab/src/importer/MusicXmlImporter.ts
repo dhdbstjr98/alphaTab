@@ -35,6 +35,7 @@ import { BarNumberDisplay } from '@coderline/alphatab/model/RenderStylesheet';
 import { Score } from '@coderline/alphatab/model/Score';
 import { Section } from '@coderline/alphatab/model/Section';
 import { SimileMark } from '@coderline/alphatab/model/SimileMark';
+import { SlideInType } from '@coderline/alphatab/model/SlideInType';
 import { SlideOutType } from '@coderline/alphatab/model/SlideOutType';
 import { Staff } from '@coderline/alphatab/model/Staff';
 import { Track } from '@coderline/alphatab/model/Track';
@@ -57,6 +58,11 @@ class StaffContext {
     public currentDynamics = DynamicValue.F;
     public tieStarts!: Set<Note>;
     public tieStartIds!: Map<string, Note>;
+    // BandPlayer patch: tie 매칭은 <notations> 파싱 시점에 수행되는데, 이 시점은
+    // 아직 transpose 가 적용되기 전이다. 그런데 tieStarts 에 담긴 Note 는 이후
+    // transpose 로 octave/tone 이 변경되므로, 나중에 그 Note 의 값을 다시 계산하면
+    // 값이 달라져 매칭에 실패한다. 그래서 start 등록 시점의 pitch 값을 함께 저장해 둔다.
+    public tieStartValues!: Map<Note, number>;
     public slideOrigins: Map<string, Note> = new Map<string, Note>();
     public transpose: number = 0;
     public isExplicitlyBeamed = false;
@@ -64,6 +70,7 @@ class StaffContext {
     constructor() {
         this.tieStarts = new Set<Note>();
         this.tieStartIds = new Map<string, Note>();
+        this.tieStartValues = new Map<Note, number>();
         this.slideOrigins = new Map<string, Note>();
         this.slurStarts = new Map<string, Note>();
     }
@@ -1345,6 +1352,10 @@ export class MusicXmlImporter extends ScoreImporter {
     private _nextBeatPalmMute: boolean = false;
     private _nextBeatOttavia: Ottavia | null = null;
     private _nextBeatText: string | null = null;
+    // BandPlayer patch: <direction><words> 의 <staff> 값을 기억해 두었다가,
+    // 해당 staff 의 beat 에 텍스트를 붙인다. (기본 동작은 다음에 생성되는 아무 beat 에나 붙여서
+    // staff 1 로 지정된 가사가 오선보 위로 올라가는 문제가 있었다.)
+    private _nextBeatTextStaffIndex: number = -1;
 
     private _parseSoundMidiInstrument(element: XmlNode, _masterBar: MasterBar) {
         let automation: Automation;
@@ -2089,6 +2100,7 @@ export class MusicXmlImporter extends ScoreImporter {
         }
 
         let previousWords: string = '';
+        let previousWordsStaffIndex: number = -1;
 
         for (const direction of directionTypes) {
             switch (direction.localName) {
@@ -2104,6 +2116,8 @@ export class MusicXmlImporter extends ScoreImporter {
                     break;
                 case 'words':
                     previousWords = direction.innerText;
+                    // BandPlayer patch: 가사가 어느 staff 에 붙어야 하는지 기억
+                    previousWordsStaffIndex = staffIndex;
                     break;
                 // case 'symbol': Not supported
                 case 'wedge':
@@ -2178,6 +2192,7 @@ export class MusicXmlImporter extends ScoreImporter {
 
         if (previousWords) {
             this._nextBeatText = previousWords;
+            this._nextBeatTextStaffIndex = previousWordsStaffIndex;
         }
     }
     private _parseOctaveShift(element: XmlNode): Ottavia | null {
@@ -2574,8 +2589,13 @@ export class MusicXmlImporter extends ScoreImporter {
             newBeat.isLetRing = this._nextBeatLetRing;
             newBeat.isPalmMute = this._nextBeatPalmMute;
             if (this._nextBeatText) {
-                newBeat.text = this._nextBeatText;
-                this._nextBeatText = null;
+                // BandPlayer patch: <direction><words> 의 <staff> 가 이 beat 의 staff 와 일치할 때만
+                // 텍스트를 붙인다. staff 1 로 지정된 가사가 오선보 위로 올라가는 것을 방지.
+                if (this._nextBeatTextStaffIndex < 0 || this._nextBeatTextStaffIndex === staffIndex) {
+                    newBeat.text = this._nextBeatText;
+                    this._nextBeatText = null;
+                    this._nextBeatTextStaffIndex = -1;
+                }
             }
 
             if (note !== null) {
@@ -3122,6 +3142,10 @@ export class MusicXmlImporter extends ScoreImporter {
                 );
                 break;
             case 'x':
+                // BandPlayer patch: MusicXML 의 X notehead 는 뮤트(데드노트)를 의미한다.
+                // 표준 오선보는 notehead 글리프로 X 를 그리지만, TAB 은 note.isDead 여부로
+                // 프랫 숫자 대신 'x' 를 그리므로 isDead 도 함께 세팅해야 TAB 에도 X 가 표시된다.
+                note.isDead = true;
                 this._applyNoteHead(
                     note,
                     beatDuration,
@@ -3468,10 +3492,23 @@ export class MusicXmlImporter extends ScoreImporter {
                 // case 'detached-legato': Not Supported
                 // case 'staccatissimo': Not Supported
                 // case 'spiccato': Not Supported
-                // case 'scoop': Not Supported
-                // case 'plop': Not Supported
-                // case 'doit': Not Supported
-                // case 'falloff': Not Supported
+                // BandPlayer patch: scoop/plop/doit/falloff 를 슬라이드로 매핑한다.
+                //   scoop   = 아래에서 슬라이드 인
+                //   plop    = 위에서 슬라이드 인
+                //   doit    = 위로 슬라이드 아웃
+                //   falloff = 아래로 슬라이드 아웃
+                case 'scoop':
+                    note.slideInType = SlideInType.IntoFromBelow;
+                    break;
+                case 'plop':
+                    note.slideInType = SlideInType.IntoFromAbove;
+                    break;
+                case 'doit':
+                    note.slideOutType = SlideOutType.OutUp;
+                    break;
+                case 'falloff':
+                    note.slideOutType = SlideOutType.OutDown;
+                    break;
                 // case 'breath-mark': Not Supported
                 // case 'caesura': Not Supported
                 // case 'stress': Not Supported
@@ -3734,12 +3771,15 @@ export class MusicXmlImporter extends ScoreImporter {
                 if (context.tieStartIds.has(number)) {
                     const unclosed = context.tieStartIds.get(number)!;
                     context.tieStarts.delete(unclosed);
+                    context.tieStartValues.delete(unclosed);
                 }
 
                 context.tieStartIds.set(number, note);
             }
 
             context.tieStarts.add(note);
+            // BandPlayer patch: transpose 적용 전의 pitch 값을 캡처해 둔다.
+            context.tieStartValues.set(note, this._calculatePitchedNoteValue(note));
         } else if (type === 'stop' && !note.isTieDestination) {
             let tieOrigin: Note | null = null;
             if (number) {
@@ -3749,13 +3789,17 @@ export class MusicXmlImporter extends ScoreImporter {
 
                 tieOrigin = context.tieStartIds.get(number)!;
                 context.tieStartIds.delete(number);
-                context.tieStarts.delete(note);
+                context.tieStarts.delete(tieOrigin);
+                context.tieStartValues.delete(tieOrigin);
             } else {
                 const realValue = this._calculatePitchedNoteValue(note);
                 for (const t of context.tieStarts) {
-                    if (this._calculatePitchedNoteValue(t) === realValue) {
+                    // BandPlayer patch: 저장된 Note 의 현재 값이 아니라, start 등록 시점에
+                    // 캡처한 값을 비교한다. (transpose 로 값이 바뀌어도 매칭이 유지되도록)
+                    if (context.tieStartValues.get(t) === realValue) {
                         tieOrigin = t;
                         context.tieStarts.delete(tieOrigin);
+                        context.tieStartValues.delete(tieOrigin);
                         break;
                     }
                 }
