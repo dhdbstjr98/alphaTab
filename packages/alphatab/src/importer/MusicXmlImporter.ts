@@ -3817,15 +3817,31 @@ export class MusicXmlImporter extends ScoreImporter {
                 context.tieStartValues.delete(tieOrigin);
             } else {
                 const realValue = this._calculatePitchedNoteValue(note);
+                // 1순위: pitch 가 일치하는 unclosed start 를 찾는다.
                 for (const t of context.tieStarts) {
                     // BandPlayer patch: 저장된 Note 의 현재 값이 아니라, start 등록 시점에
                     // 캡처한 값을 비교한다. (transpose 로 값이 바뀌어도 매칭이 유지되도록)
                     if (context.tieStartValues.get(t) === realValue) {
                         tieOrigin = t;
-                        context.tieStarts.delete(tieOrigin);
-                        context.tieStartValues.delete(tieOrigin);
                         break;
                     }
+                }
+
+                // BandPlayer patch: 2순위 fallback — 원본 MusicXML 이 tie 의 start/stop
+                // 음높이를 서로 다르게 내보내는 경우가 있다(예: MuseScore export 결함).
+                // MusicXML 표준은 pitch 일치를 요구하지만, 실제 악보 뷰어들은 같은 보표의
+                // 다음 tie stop 을 순서대로 연결한다. pitch 매칭이 실패하면 가장 먼저
+                // 등록된(가장 오래된) unclosed start 와 연결해 tie 체인 붕괴를 막는다.
+                if (!tieOrigin) {
+                    for (const t of context.tieStarts) {
+                        tieOrigin = t;
+                        break;
+                    }
+                }
+
+                if (tieOrigin) {
+                    context.tieStarts.delete(tieOrigin);
+                    context.tieStartValues.delete(tieOrigin);
                 }
             }
 
