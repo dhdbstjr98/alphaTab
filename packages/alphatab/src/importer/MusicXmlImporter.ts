@@ -2116,8 +2116,13 @@ export class MusicXmlImporter extends ScoreImporter {
                     break;
                 case 'words':
                     previousWords = direction.innerText;
-                    // BandPlayer patch: 가사가 어느 staff 에 붙어야 하는지 기억
-                    previousWordsStaffIndex = staffIndex;
+                    // BandPlayer patch: 가사가 어느 staff 에 붙어야 하는지 기억.
+                    // 원본 MusicXML 은 대부분의 가사를 <staff>2</staff>(타브)로 두지만,
+                    // 일부 마디만 <staff>1</staff>(오선보)로 잘못 내보내는 경우가 많다.
+                    // (전곡 스캔 결과 다수 곡에서 소수 가사가 staff 1 로 지정됨)
+                    // 타브 보표가 있는 악보에서는 가사를 타브 보표에 붙여야 연주자가 읽기
+                    // 때문에, 타브 보표가 존재하면 그 보표로 귀속시킨다.
+                    previousWordsStaffIndex = this._resolveLyricStaffIndex(track, staffIndex);
                     break;
                 // case 'symbol': Not supported
                 case 'wedge':
@@ -2195,6 +2200,25 @@ export class MusicXmlImporter extends ScoreImporter {
             this._nextBeatTextStaffIndex = previousWordsStaffIndex;
         }
     }
+    /**
+     * BandPlayer patch: 가사(<words>)를 붙일 staff 인덱스를 결정한다.
+     * 타브 보표(showTablature)가 있으면 그 보표를 우선한다. 원본 MusicXML 이
+     * 일부 가사를 오선보 staff 로 잘못 내보내는 문제를 일반 규칙으로 교정한다.
+     */
+    private _resolveLyricStaffIndex(track: Track, staffIndex: number): number {
+        // 타브 전용 보표(showTablature && !showStandardNotation)를 우선한다.
+        // showTablature 는 기본값이 true 라서, 오선보+TAB 동시 표시 보표와 구분하려면
+        // showStandardNotation 이 꺼진 보표를 찾아야 한다.
+        let tabStaffIndex = track.staves.findIndex(s => s.showTablature && !s.showStandardNotation);
+        if (tabStaffIndex < 0) {
+            tabStaffIndex = track.staves.findIndex(s => s.showTablature);
+        }
+        if (tabStaffIndex >= 0) {
+            return tabStaffIndex;
+        }
+        return staffIndex;
+    }
+
     private _parseOctaveShift(element: XmlNode): Ottavia | null {
         const type = element.getAttribute('type');
         const size = Number.parseInt(element.getAttribute('size', '8'), 10);
