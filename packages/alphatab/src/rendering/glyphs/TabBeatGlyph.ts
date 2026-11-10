@@ -4,6 +4,7 @@ import { GraceType } from '@coderline/alphatab/model/GraceType';
 import { type Note, NoteSubElement } from '@coderline/alphatab/model/Note';
 import { TabRhythmMode } from '@coderline/alphatab/NotationSettings';
 import { NoteXPosition, NoteYPosition } from '@coderline/alphatab/rendering/BarRendererBase';
+import { ArticStaccatoAboveGlyph } from '@coderline/alphatab/rendering/glyphs/ArticStaccatoAboveGlyph';
 import { AugmentationDotGlyph } from '@coderline/alphatab/rendering/glyphs/AugmentationDotGlyph';
 import { BeatOnNoteGlyphBase } from '@coderline/alphatab/rendering/glyphs/BeatOnNoteGlyphBase';
 import type { Glyph } from '@coderline/alphatab/rendering/glyphs/Glyph';
@@ -137,6 +138,16 @@ export class TabBeatGlyph extends BeatOnNoteGlyphBase {
                 for (let i: number = 0; i < this.container.beat.dots; i++) {
                     this.addEffect(new AugmentationDotGlyph(0, y));
                 }
+            }
+
+            //
+            // Staccato
+            //
+            // BandPlayer patch: 표준 오선보(ScoreBeatGlyph)에는 스타카토 렌더링이 있지만
+            // 타브 경로에는 누락되어 있어, MusicXML 의 <staccato> 가 타브 뷰에서 보이지 않았다.
+            // 표준 오선보와 동일하게 ArticStaccatoAboveGlyph 를 beatEffects 에 등록한다.
+            if (this.container.beat.notes.some(n => n.isStaccato) && !beatEffects.has('Staccato')) {
+                beatEffects.set('Staccato', new ArticStaccatoAboveGlyph(0, 0));
             }
         } else {
             const line = Math.floor((this.renderer.bar.staff.tuning.length - 1) / 2);
