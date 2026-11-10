@@ -2042,8 +2042,11 @@ export class MusicXmlImporter extends ScoreImporter {
             switch (c.localName) {
                 case 'direction-type':
                     // See https://github.com/CoderLine/alphaTab/issues/2102
-                    const type = c.firstElement;
-                    if (type) {
+                    // BandPlayer patch: XmlNode.firstElement 는 "첫 요소"가 아니라
+                    // "마지막으로 추가된 요소"(addChild 가 덮어씀)다. 그래서 원본은
+                    // <direction-type> 안의 마지막 자식만 처리해, 여러 줄 가사가
+                    // 담긴 <words> 들 중 하나만 남았다. 모든 자식 요소를 순회한다.
+                    for (const type of c.childElements()) {
                         directionTypes.push(type);
                     }
                     break;
@@ -2062,6 +2065,15 @@ export class MusicXmlImporter extends ScoreImporter {
                     if (c.attributes.has('tempo')) {
                         tempo = Number.parseFloat(c.attributes.get('tempo')!);
                     }
+                    // bandplayer patch: direction 안에 중첩된 <sound> 의 점프/반복 지시자를
+                    // 처리한다. 원본은 tempo 만 읽어 D.S./To Coda/Fine 이 통째로 유실된다
+                    // (MuseScore 는 <direction><sound dalsegno="segno"/></direction> 형태로 내보낸다).
+                    if (c.attributes.has('coda')) masterBar.addDirection(Direction.TargetCoda);
+                    if (c.attributes.has('tocoda')) masterBar.addDirection(Direction.JumpDaCoda);
+                    if (c.attributes.has('dacapo')) masterBar.addDirection(Direction.JumpDaCapo);
+                    if (c.attributes.has('dalsegno')) masterBar.addDirection(Direction.JumpDalSegno);
+                    if (c.attributes.has('fine')) masterBar.addDirection(Direction.TargetFine);
+                    if (c.attributes.has('segno')) masterBar.addDirection(Direction.TargetSegno);
                     break;
                 // case 'listening': Ignored
             }
@@ -2114,8 +2126,21 @@ export class MusicXmlImporter extends ScoreImporter {
                 case 'coda':
                     masterBar.addDirection(Direction.TargetCoda);
                     break;
-                case 'words':
-                    previousWords = direction.innerText;
+                case 'words': {
+                    // BandPlayer patch: 한 <direction> 안에 <words> 가 여러 개 있으면
+                    // (MuseScore 가 여러 줄 가사를 각각 별도 <words> 로 내보낸다) 모두 보존한다.
+                    // 원본은 마지막 하나만 남겨 가사가 1줄만 보였다.
+                    // TextGlyph 가 '\n' 을 다중 행으로 렌더하므로 개행으로 이어붙인다.
+                    // MuseScore 는 각 <words> 끝에 개행을 붙여 내보내므로(예: "-\n"),
+                    // 그대로 이어붙이면 빈 줄이 생겨 첫 줄이 밀려난다. 앞뒤 공백을 정리한다.
+                    const wordsText = direction.innerText.replace(/\s+$/, '').replace(/^\s+/, '');
+                    if (wordsText.length > 0) {
+                        if (previousWords.length > 0) {
+                            previousWords += '\n' + wordsText;
+                        } else {
+                            previousWords = wordsText;
+                        }
+                    }
                     // BandPlayer patch: 가사가 어느 staff 에 붙어야 하는지 기억.
                     // 원본 MusicXML 은 대부분의 가사를 <staff>2</staff>(타브)로 두지만,
                     // 일부 마디만 <staff>1</staff>(오선보)로 잘못 내보내는 경우가 많다.
@@ -2124,6 +2149,7 @@ export class MusicXmlImporter extends ScoreImporter {
                     // 때문에, 타브 보표가 존재하면 그 보표로 귀속시킨다.
                     previousWordsStaffIndex = this._resolveLyricStaffIndex(track, staffIndex);
                     break;
+                }
                 // case 'symbol': Not supported
                 case 'wedge':
                     switch (direction.getAttribute('type')) {

@@ -38,12 +38,15 @@ export class TextGlyph extends EffectGlyph {
 
         this._lineHeights = [];
         const c = this.renderer.scoreRenderer.canvas!;
+        // BandPlayer patch: 줄 높이를 measureText 결과가 아니라 폰트 크기 기준으로 통일한다.
+        // 폭이 0인 줄(예: 가사 자리표시자 '-')은 measureText 높이가 2px 수준으로 나와
+        // 다음 줄과 겹쳐 보였다. 폰트 크기를 쓰면 모든 줄이 동일한 줄 높이를 갖는다.
+        const lineHeight = this.font.size;
         for (const line of this._lines) {
             c.font = this.font;
             const size = c!.measureText(line);
-            const h = size.height;
-            this._lineHeights.push(h);
-            this.height += h;
+            this._lineHeights.push(lineHeight);
+            this.height += lineHeight;
             this.width = Math.max(this.width, size.width);
         }
     }
