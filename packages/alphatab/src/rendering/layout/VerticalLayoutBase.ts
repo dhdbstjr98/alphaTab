@@ -527,16 +527,11 @@ export abstract class VerticalLayoutBase extends ScoreLayout {
     }
 
     private _needsLineBreak(barIndex: number) {
-        let anyTrackNeedsLineBreak = false;
-        let allTracksNeedLineBreak = true;
-        for (const track of this.renderer.tracks!) {
-            if (track.lineBreaks && track.lineBreaks!.has(barIndex + 1)) {
-                anyTrackNeedsLineBreak = true;
-            } else {
-                allTracksNeedLineBreak = false;
-            }
-        }
-        return anyTrackNeedsLineBreak && allTracksNeedLineBreak;
+        // BandPlayer patch: MusicXML 의 강제 줄바꿈(<print new-system="yes"> / new-page)을
+        // 무시하고 항상 내용 폭 기반 자동 줄바꿈만 사용한다.
+        // 원본 악보가 4마디마다 줄바꿈을 강제해 둔 경우, 노트가 많은 마디에서
+        // 자동 줄바꿈이 먼저 걸려 "3마디 + 1마디" 같은 어색한 줄이 생기기 때문.
+        return false;
     }
 
     private get _maxWidth(): number {
