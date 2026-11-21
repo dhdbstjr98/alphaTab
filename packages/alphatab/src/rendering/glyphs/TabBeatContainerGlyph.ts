@@ -52,6 +52,17 @@ export class TabBeatContainerGlyph extends BeatContainerGlyph {
             const tie: TabTieGlyph = new TabTieGlyph(`tab.tie.${n.tieOrigin!.id}`, n.tieOrigin!, n, true);
             this.addTie(tie);
         }
+        // 🎸 bandplayer 패치: 타브 보표의 이음줄(slur) 표시
+        // alphaTab 원본은 오선보(ScoreBeatContainerGlyph)에서만 slur 글리프를 만들어
+        // 오선보+TAB 동시 표시 악보에서 TAB에 이음줄이 전혀 그려지지 않는다.
+        if (n.isSlurOrigin && n.slurDestination && n.slurDestination.isVisible) {
+            const slur: TabSlurGlyph = new TabSlurGlyph(`tab.slur.${n.id}`, n, n.slurDestination, false, false);
+            this.addTie(slur);
+        }
+        if (n.isSlurDestination && n.slurOrigin) {
+            const slur: TabSlurGlyph = new TabSlurGlyph(`tab.slur.${n.slurOrigin.id}`, n.slurOrigin, n, false, true);
+            this.addTie(slur);
+        }
         if (n.isLeftHandTapped && !n.isHammerPullDestination) {
             const tapSlur: TabTieGlyph = new TabTieGlyph(`tab.tie.leftHandTap.${n.id}`, n, n, false);
             this.addTie(tapSlur);
